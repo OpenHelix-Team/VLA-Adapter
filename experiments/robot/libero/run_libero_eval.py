@@ -458,7 +458,11 @@ def run_task(
 
     log_message(f"Current task success rate: {task_success_rate}", log_file)
     log_message(f"Current total success rate: {total_success_rate}", log_file)
-
+    
+    # close env
+    env.close()
+    del env
+    
     # Log to wandb if enabled
     if cfg.use_wandb:
         wandb.log(
