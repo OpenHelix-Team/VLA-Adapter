@@ -98,8 +98,10 @@ ninja --version; echo $?  # Verify Ninja --> should return exit code "0"
 
 # Install Flash Attention 2 for training (https://github.com/Dao-AILab/flash-attention)
 pip install "flash-attn==2.5.5" --no-build-isolation
-# If you run into difficulty, try `pip cache remove flash_attn` first, or visit the website to download it. (https://github.com/Dao-AILab/flash-attention/releases/tag/v2.5.5)
-# You can download the corresponding `.whl` file according to the cuda version of `nvidia-smi`, and then run `pip install flash_attn-2.5.5+cuXX...whl` to install it. 
+# If you run into difficulty, try `pip cache remove flash_attn` first, or visit the
+# website to download it. (https://github.com/Dao-AILab/flash-attention/releases/tag/v2.5.5)
+# You can download the corresponding `.whl` file according to the cuda version of `nvidia-smi`,
+# and then run `pip install flash_attn-2.5.5+cuXX...whl` to install it. 
 # We use the `flash_attn-2.5.5+cu122torch2.2cxx11abiFALSE-cp310-cp310-linux_x86_64.whl` file.
 ```
 
