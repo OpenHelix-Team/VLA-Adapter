@@ -704,3 +704,10 @@ All our results are inferred on `H100`. You can find the inference `log` file in
 ## :heart: Acknowledgment
 
 We thank [OpenVLA-OFT](https://github.com/moojink/openvla-oft), [MiniVLA](https://github.com/Stanford-ILIAD/openvla-mini), and [RoboDual](https://github.com/OpenDriveLab/RoboDual) for their open-sourced work!
+
+## 🌟 Star History
+
+<a href="https://www.star-history.com/#OpenHelix-Team/VLA-Adapter&Date">
+  <img src="https://api.star-history.com/svg?repos=OpenHelix-Team/VLA-Adapter&type=Date" width="400" height="250" />
+</a>
+
