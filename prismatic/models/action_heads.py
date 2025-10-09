@@ -47,6 +47,14 @@ class L1RegressionActionHead(nn.Module):
             proprio_projector=None,
             phase="Inference"
             ):
+        """
+        * action_hidden_states: [B, Hidden, L_v + L_a, Dim]
+        * proprio_hidden_states: 
+        * proprio_projector: [B, P_dim] --> [B, 1, Dim]
+        * 输出时：task_hidden_states: [B, Hidden, L_v, Dim], action_hidden_states: [B, Hidden, L_a, Dim]
+        * cond_actions_hidden_states: [B, A_dim * A_chunk, Dim] --(reshape)-- [B, A_chunk, A_dim * Dim]
+        * 这 rearranged_actions_hidden_states 是 Learnable PE
+        """
         batch_size = actions_hidden_states.shape[0]
         device = actions_hidden_states.device
 
@@ -110,7 +118,8 @@ class MLPResNet(nn.Module):
 
 
     def forward(self, x, h_a=None, h_t=None, p= None):
- 
+        #* [B, A_chunk, A_dim * Dim] -> [B, A_chunk, Dim] -> [B, A_chunk, A_dim]
+        #* 每一个 block 内部的过程是：
         # x: (batch_size, input_dim)
         x = self.layer_norm1(x)  # shape: (batch_size, input_dim)
         x = self.fc1(x)  # shape: (batch_size, hidden_dim)
@@ -340,6 +349,14 @@ class MLPResNetBlock_Pro(nn.Module):
         h_a: adapter tokens
         h_t: task tokens
         p:   possible conditioning vector (for FiLM)
+        * x: [B, A_chunk, Dim]
+        * h_a: [B, L_a, Dim]
+        * h_t: [B, L_v, Dim]
+        * p:   [B, 1, Dim]
+        * 三种：[B, n, A_chunk, dim], [B, n, L_a + p, dim], [B, n, L_v, dim] MHA 方式，加入 RoPE
+        * [B, n, A_chunk, dim] 的 q 和 自身的 k、h_t 的 k、h_a 的 k 分别做点积，得到三个
+        * [B, n, A_chunk, A_chunk], [B, n, A_chunk, L_a + p], [B, n, A_chunk, L_v] , cat 就是 [B, n, A_chunk, A_chunk + (L_a + p) + L_v]
+        * 而 v 三者 cat 在一起就是 [B, n, A_chunk + (L_a + p) + L_v, dim] --> [B, n, A_chunk, dim]
         """
         g = self.gating_factor
         ratio_g = torch.tanh(g)

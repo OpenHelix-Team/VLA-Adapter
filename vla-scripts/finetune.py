@@ -348,6 +348,9 @@ def run_forward_pass(
             )
 
     # Get action masks needed for logging
+    #* batch["labels"] 是 L 个（L_a+L_lang），第一个是 BOS token，这样 :, 1: 是索引第 2-L 个。
+    #* current_action_mask 索引了 L 中 L_a 里面前 6 个。
+    #* next_action_mask 索引了 L 中 L_a 里后面 58 个（设定了 64 个 action tokens）
     ground_truth_token_ids = batch["labels"][:,1:].to(device_id)
     current_action_mask = get_current_action_mask(ground_truth_token_ids)
     next_actions_mask = get_next_actions_mask(ground_truth_token_ids)
@@ -394,7 +397,12 @@ def run_forward_pass(
     else:
         # Get last layer hidden states
         multi_layer_hidden_states = []
-        
+        #* 每一层 [B, 1 + L_v + (L_a + L_lang -1), Dim] 的 hidden_states 
+        #* text_hidden_states 就是 [B, L_a + L_lang -1, Dim]
+        #* actions_hidden_states 就对应索引取出 action 是 True 的部分： [B, 1, L_a, Dim]
+        #* task_latten_states 是 vision 部分，也就是 [B, 1, L_v, Dim]
+        #* 这二者 cat 在一起，也就是 [B, 1, L_v + L_a, Dim]
+        #* 若一共 H 层，那我们最后在 维度 1 上 cat 即可得到 [B, H, L_v + L_a, Dim]，这就是输入给 action head 的。H 是中间层数。
         for item in output.hidden_states[0:]:
             # last_hidden_states = output.hidden_states[-1]  # (B, seq_len, D)
             # Get hidden states for text portion of prompt+response (after the vision patches)
@@ -719,6 +727,31 @@ def finetune(cfg: FinetuneConfig) -> None:
     # Create experiment run directory
     run_dir = cfg.run_root_dir / run_id
     os.makedirs(run_dir, exist_ok=True)
+    from omegaconf import OmegaConf
+    from dataclasses import asdict
+    import json
+    cfg_dict = cfg if isinstance(cfg, dict) else \
+           OmegaConf.to_container(cfg) if OmegaConf.is_config(cfg) else \
+           asdict(cfg)  # dataclass
+
+    # 2. Path 对象转字符串，保证可 JSON 序列化
+    def _convert_path(obj):
+        if isinstance(obj, Path):
+            return str(obj)
+        if isinstance(obj, dict):
+            return {k: _convert_path(v) for k, v in obj.items()}
+        if isinstance(obj, (list, tuple)):
+            return [_convert_path(i) for i in obj]
+        return obj
+
+    cfg_dict = _convert_path(cfg_dict)
+
+    # 3. 写入 run_dir
+    config_json = run_dir / "config.json"
+    with config_json.open("w", encoding="utf-8") as f:
+        json.dump(cfg_dict, f, indent=2, ensure_ascii=False)
+
+    print(f"Config saved to {config_json}")
 
     # GPU setup
     distributed_state = PartialState()
@@ -775,7 +808,7 @@ def finetune(cfg: FinetuneConfig) -> None:
     processor = AutoProcessor.from_pretrained(cfg.config_file_path, trust_remote_code=True)
 
     if cfg.use_minivlm:
-        hf_token = ''
+        hf_token = '<YOUR_TOKEN_HERE>'
         if 'prism-qwen25-extra-dinosiglip-224px-0_5b' in cfg.vlm_path:
             
             vlm = load(cfg.vlm_path, hf_token=hf_token, load_for_training=True)

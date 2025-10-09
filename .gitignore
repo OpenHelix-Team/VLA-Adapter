@@ -144,10 +144,15 @@ dmypy.json
 # Mac OS
 .DS_Store
 
+
 # Caches and Datasets
 cache/
 data/
-
+pretrained_models/
 # Rollout videos and wandb logs
 rollouts/
 wandb/
+outputs/
+experiments/logs/
+evaluation_results/
+vla_adapter.egg-info/

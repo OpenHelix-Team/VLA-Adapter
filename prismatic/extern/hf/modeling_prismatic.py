@@ -428,6 +428,14 @@ class PrismaticForConditionalGeneration(PrismaticPreTrainedModel):
         Returns:
             Modified input_embeddings tensor
         """
+        """
+        * input_embeddings:               [B, L_a + L_lang, Dim]
+        * all_actions_mask:               [B, L_a + L_lang]
+        * noisy_action_features:          [B, L_a, Dim]
+        * 此处其实是替换，我们 L_a + L_lang 这一串我们把 L_a 的部分，用 mask_indicies 索引从哪开始 L_a 这块
+        * 我们 action_queries （论文核心设计）是 Embedding(num_tokens, dim) 的 weight
+        * 这一块是 [B, L_a + L_lang, Dim] 当中 L_a 替换成 action_queries 的 weight，L_lang 不动
+        """
         # Clone input to avoid modifying the original tensor
         new_input_embeddings = input_embeddings.clone()
 
@@ -455,6 +463,15 @@ class PrismaticForConditionalGeneration(PrismaticPreTrainedModel):
 
     def _process_action_masks(self, labels):
         """Helper to get action masks from labels"""
+        """
+        * IGNORE_INDEX = -100, labels 中从第一个 -100 开始，
+        * ACTION_TOKEN_BEGIN_IDX = 151386
+        * NUM_TOKENS = 64, action 有 64 个 token ，从而 labels 一般是 64 个非 -100 。
+        * ACTION_DIM = 7，current_action 是 labels 里 前 6 个，next_actions 是 后 58 个
+        * 两个 mask 都是 Boolean。因此 1-48 是 -100, 49 - 54 是 curr_action, 55 - 110 是 next_actions, 后面都是 -100。
+        * 因而 all_action_mask 其实就是 [B, L] 这里 每一个 sample 中 64 个是 True，表示第几个 token 是 action 的。
+        * action 部分的 64 个就是 True。余下的是 False
+        """
         current_action_mask = get_current_action_mask(labels)
         next_actions_mask = get_next_actions_mask(labels)
         all_actions_mask = current_action_mask | next_actions_mask  # (B, seq_len)
@@ -462,6 +479,10 @@ class PrismaticForConditionalGeneration(PrismaticPreTrainedModel):
 
     def _process_vision_features(self, pixel_values, language_embeddings=None, use_film=False):
         """Process vision features with optional FiLM conditioning"""
+        """
+        * 原设置没有 film condition，因此 language 的 feature embedding 不会传入给 vision transformer。
+        * [B, 3 * num_images, H, W] --(vision)--> [B, 256 * num_images, D] --(projector)--> [B, 256 * num_images, llm_dim]
+        """
         if use_film:
             # FiLM: Infuse language inputs into visual features
             patch_features = self.vision_backbone(pixel_values, language_embeddings)  # (bsz, 256 * num_images, D)
@@ -473,6 +494,11 @@ class PrismaticForConditionalGeneration(PrismaticPreTrainedModel):
 
     def _process_proprio_features(self, projected_patch_embeddings, proprio, proprio_projector):
         """Process proprioceptive features and append to vision features"""
+        """
+        * 将 proprio 投影到 [B, D] 的 vector，然后 [B, 1, D]
+        * 然后 append 到尾部
+        * 实际上没有使用。
+        """
         if proprio_projector is not None and proprio is not None:
             # projected_patch_embeddings: (bsz, num_patches * num_images, llm_dim)
             # proprio: (bsz, proprio_dim) or (propro_dim,)
@@ -486,7 +512,13 @@ class PrismaticForConditionalGeneration(PrismaticPreTrainedModel):
     def _build_multimodal_attention(self, input_embeddings, projected_patch_embeddings, attention_mask):
         """Build multimodal embeddings and attention mask"""
         # Update attention mask
-        
+        """
+        * 这里 input_embedding 中 L_a 的部分已经被替换为 nn.Embedding 的 weight了。
+        * 其实就是 input_embed 和 mask 在 length 上和 vision 的 embed 里 cat
+        * multimodal_embeddings: [B, 1 + L_v + (L_a + L_lang -1), Dim] 注意这个 1 是 <BOS> token。L_v 被插在了这二者之间了。
+        * multimodal_attention_mask: [B, 1 + L_v + (L_a + L_lang -1)]。
+        * vision 部分的 mask [B, L_v] 是 全 True 的。
+        """
         projected_patch_attention_mask = None
         if attention_mask is not None:
             projected_patch_attention_mask = torch.full(
@@ -511,6 +543,7 @@ class PrismaticForConditionalGeneration(PrismaticPreTrainedModel):
 
     def _build_multimodal_labels(self, labels, projected_patch_embeddings):
         """Build multimodal labels with IGNORE_INDEX for patch embeddings"""
+        #* 所有 vision 部分的 index 都标为 -100（非 action 的 label），然后和原来 label [B, 1 + L_v + (L_a + L_lang -1)] 拼接
         if labels is not None:
             projected_patch_labels = torch.full(
                 (projected_patch_embeddings.shape[0], projected_patch_embeddings.shape[1]),
@@ -543,6 +576,22 @@ class PrismaticForConditionalGeneration(PrismaticPreTrainedModel):
         use_film: bool = False,
     ) -> Union[Tuple, PrismaticCausalLMOutputWithPast]:
         """Run a forward pass through the VLM, returning a PrismaticCausalLMOutputWithPast instance."""
+        """
+        * Debug NOTE:
+        * input_ids has shape:                   [B, 120]                with dtype: torch.int64 
+        ^ input_ids: 
+        * attention_mask has shape:              [B, 120]                with dtype: torch.bool
+        ^ attention_mask [torch.where(~m)[0].tolist() for m in attention_mask]
+        ^ [[119], [109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119], [114, 115, 116, 117, 118, 119], ...]
+
+        * pixel_values has shape:                [B, 12, 224, 224]       with dtype: torch.float32
+        * labels has shape:                      [B, 120]                with dtype: torch.int64
+        ^ [(r[0].item(), r[-1].item()) if len(r:=torch.where(l!=-100)[0]) else (None,None) for l in labels] 
+        ^ -100 一段 --> 非 -100 --> -100 一段
+        ^ [(54, 118), (44, 108), (49, 113), (48, 112), (50, 114), (44, 108), (49, 113), (55, 119)]
+
+        * proprio has shape:                     [B, 8]                  with dtype: torch.float32
+        """
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
@@ -595,6 +644,10 @@ class PrismaticForConditionalGeneration(PrismaticPreTrainedModel):
 
         # === Handle Multimodal Forward ===
         elif (input_ids.shape[0] == pixel_values.shape[0]) or (inputs_embeds.shape[0] == pixel_values.shape[0]):
+            
+            #! Entered here!
+            #* input_ids: [B, L_a+L_lang](int64) --(embedding)--> [B, L_a+L_lang, Dim](bfloat16) where 120 is the sequence len.
+            #* non -100 labels are acion tokens.
             assert past_key_values is None, "Unexpected key `past_key_values` provided during multimodal forward!"
 
             # Get input embeddings (from language model embeddings)
@@ -604,13 +657,18 @@ class PrismaticForConditionalGeneration(PrismaticPreTrainedModel):
             # Extract action masks
             all_actions_mask = self._process_action_masks(labels)
 
+            #* labels 有 64 个 非 -100 的 id，mask 也就是对应 64 个 位置是 True。这里也就是 labels 非 -100 的位置对应 True，说明是 action token
+            #* input_embeddings: [B, L_a + L_lang, Dim]
+            #* all_actions_mask 定位 L_a 起始终止 index。
+            #* language_embeddings: [B, L_lang, Dim]
+            #* projected_patch_embeddings:   [B, L_vis, Dim]
             # Extract the language portion of the input embeddings (i.e. remove the action tokens portion)
             
             # print(input_embeddings[~all_actions_mask].size())
             language_embeddings = input_embeddings[~all_actions_mask].reshape(
                 input_embeddings.shape[0], -1, input_embeddings.shape[2]
             )  # (B, lang_seq_len, llm_dim)
-
+            
             # Get visual features
             projected_patch_embeddings = self._process_vision_features(pixel_values, language_embeddings, use_film)
 
@@ -639,6 +697,10 @@ class PrismaticForConditionalGeneration(PrismaticPreTrainedModel):
             
             # Build labels for multimodal sequence if needed
             multimodal_labels = self._build_multimodal_labels(labels, projected_patch_embeddings)
+            
+            #* multimodal_embeddings:     [B, 1 + L_vis + (L_a + L_lang -1), Dim]
+            #* multimodal_attention_mask: [B, 1 + L_vis + (L_a + L_lang -1)]
+            #* mask 在 L_vis 和 L_a 为 True，余下为 False，这其实是说 Langugae 部分是 Causal 而 action，vis 是 bidirectional。
 
             # Dispatch to language model
             language_model_output = self.language_model(

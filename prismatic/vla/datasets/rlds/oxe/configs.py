@@ -177,6 +177,13 @@ OXE_DATASET_CONFIGS = {
         "state_encoding": StateEncoding.POS_EULER,
         "action_encoding": ActionEncoding.EEF_POS,
     },
+    "calvin_abc_rlds": {
+        "image_obs_keys": {"primary": "rgb_static", "secondary": None, "wrist": "rgb_gripper"},
+        "depth_obs_keys": {"primary": None, "secondary": None, "wrist": None},
+        "state_obs_keys": ["EEF_state", "gripper_state"],
+        "state_encoding": StateEncoding.POS_EULER,
+        "action_encoding": ActionEncoding.EEF_POS,
+    },
     "columbia_cairlab_pusht_real": {
         "image_obs_keys": {
             "primary": "image",
