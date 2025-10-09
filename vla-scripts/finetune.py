@@ -57,6 +57,7 @@ from prismatic.vla.constants import (
 from prismatic.vla.datasets import RLDSDataset, RLDSBatchTransform
 from prismatic.vla.datasets.rlds.utils.data_utils import save_dataset_statistics
 from prismatic.models import load, load_vla
+from prismatic.models.pi3_loader import load_pc_model
 
 
 
@@ -70,6 +71,7 @@ class FinetuneConfig:
     vlm_path: str = "openvla/openvla-7b"             # Path to OpenVLA model (on HuggingFace Hub or stored locally)
     use_minivlm: bool = False                        # 
     resum_vla_path: str = "openvla/openvla-7b"       # Path to OpenVLA model (on HuggingFace Hub or stored locally)
+    pi3_path: Path = Path("/home/ruihengwang/vla/VLA-Adapter/pretrained_models/pi3_checkpoint")
 
     # Dataset
     data_root_dir: Path = Path("datasets/rlds")      # Directory containing RLDS datasets
@@ -298,7 +300,8 @@ def run_forward_pass(
     num_patches,
     compute_diffusion_l1=False,
     use_pro_version=True,
-    cfg=None
+    cfg=None,
+    **kwargs
 ) -> Tuple[torch.Tensor, Dict[str, float]]:
     """
     Compute model forward pass and metrics for both training and validation.
@@ -927,6 +930,7 @@ def finetune(cfg: FinetuneConfig) -> None:
             },
         to_bf16=True,
         )
+    pi3_model = load_pc_model(cfg.pi3_path).to(device_id)
 
     # Get number of vision patches
     NUM_PATCHES = vla.module.vision_backbone.get_num_patches() * vla.module.vision_backbone.get_num_images_in_input()

@@ -100,10 +100,14 @@ class FlashAttention(Attention):
         q, k, v = [qkv[:,:,i] for i in range(3)]
 
         if q.dtype == torch.bfloat16:
-            with nn.attention.sdpa_kernel(SDPBackend.FLASH_ATTENTION):
+            with torch.backends.cuda.sdp_kernel(enable_flash=True,
+                                        enable_mem_efficient=False,
+                                        enable_math=False):
                 x = scaled_dot_product_attention(q, k, v)
         else:
-            with nn.attention.sdpa_kernel([SDPBackend.MATH, SDPBackend.EFFICIENT_ATTENTION]):
+            with torch.backends.cuda.sdp_kernel(enable_flash=False,
+                                        enable_mem_efficient=True,
+                                        enable_math=True):
                 x = scaled_dot_product_attention(q, k, v)
 
         x = x.transpose(1, 2).reshape([B, N, C])
@@ -334,10 +338,14 @@ class FlashAttentionRope(AttentionRope):
             k = self.rope(k, xpos)
 
         if q.dtype == torch.bfloat16:
-            with nn.attention.sdpa_kernel(SDPBackend.FLASH_ATTENTION):
+            with torch.backends.cuda.sdp_kernel(enable_flash=True,
+                                        enable_mem_efficient=False,
+                                        enable_math=False):
                 x = scaled_dot_product_attention(q, k, v)
         else:
-            with nn.attention.sdpa_kernel([SDPBackend.MATH, SDPBackend.EFFICIENT_ATTENTION]):
+            with torch.backends.cuda.sdp_kernel(enable_flash=False,
+                                        enable_mem_efficient=True,
+                                        enable_math=True):
                 x = scaled_dot_product_attention(q, k, v)
 
         x = x.transpose(1, 2).reshape([B, N, C])

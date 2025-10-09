@@ -20,8 +20,6 @@ from prismatic.models.vlms import PrismaticVLM
 from prismatic.overwatch import initialize_overwatch
 from prismatic.vla.action_tokenizer import ACTION_TOKENIZERS, ActionTokenizer
 
-from prismatic.models.pi3.models.pi3 import Pi3
-
 # Initialize Overwatch =>> Wraps `logging.Logger`
 overwatch = initialize_overwatch(__name__)
 
