@@ -25,6 +25,7 @@
 ## :loudspeaker: News!
 - **[2025/09/22]** We released our codes! An enhanced **Pro** version is also released (this version conforms to the pipeline in the original paper, but is optimized in implementation). Everyone is welcome to use it!🎉
 - **[2025/09/13]** Our paper won the 🥇**first place** in the [daily list](https://huggingface.co/papers/date/2025-09-12), the 🥈**second place** in the [weekly list](https://huggingface.co/papers/week/2025-W37), and 🥉**third place** in the [Monthly list](https://huggingface.co/papers/month/2025-09) in HF! ⭐
+- **[2025/09/13]** Our paper listed in the [Trending Paper](https://github.com/OpenHelix-Team/VLA-Adapter/blob/main/figure/Trending%20Papers%20-%20Hugging%20Face.pdf) in HF! ⭐
 - **[2025/09/12]** We released the original version of the VLA-Adapter for four LIBERO models on [HuggingFace](https://huggingface.co/VLA-Adapter).
 - **[2025/09/11]** We released our paper on [ArXiv](https://arxiv.org/abs/2509.09372).
 
