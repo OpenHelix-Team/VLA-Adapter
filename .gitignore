@@ -155,4 +155,3 @@ wandb/
 outputs/
 experiments/logs/
 evaluation_results/
-vla_adapter.egg-info/
