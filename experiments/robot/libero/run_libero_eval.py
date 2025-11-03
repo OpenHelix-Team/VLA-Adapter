@@ -12,7 +12,7 @@ from collections import deque
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional, Union, List
 
 import draccus
 import numpy as np
@@ -48,7 +48,7 @@ from experiments.robot.robot_utils import (
     set_seed_everywhere,
 )
 from prismatic.vla.constants import NUM_ACTIONS_CHUNK
-
+from prismatic.models.pi3_loader import load_pc_model
 
 # Define task suite constants
 class TaskSuite(str, Enum):
@@ -127,6 +127,11 @@ class GenerateConfig:
     save_version: str = "vla-adapter"                # version of 
     use_pro_version: bool = True                     # encourage to use the pro models we released.
     phase: str = "Inference"
+
+    use_3d: bool = False
+    dim_3d: int = 2048
+    pi3_path: Path = Path("/home/ruihengwang/vla/VLA-Adapter/pretrained_models/pi3_checkpoint")
+    inject_layers: Optional[int | List[int] | str] = None
 
 
 
@@ -292,6 +297,7 @@ def run_episode(
     noisy_action_projector=None,
     initial_state=None,
     log_file=None,
+    pi3_model=None
 ):
     """Run a single episode in the environment."""
     # Reset environment
@@ -342,7 +348,8 @@ def run_episode(
                     proprio_projector=proprio_projector,
                     noisy_action_projector=noisy_action_projector,
                     use_film=cfg.use_film,
-                    use_minivlm=cfg.use_minivlm
+                    use_minivlm=cfg.use_minivlm,
+                    pi3_model=pi3_model
                 )
 
                 action_queue.extend(actions) 
@@ -383,7 +390,8 @@ def run_task(
     total_episodes=0,
     total_successes=0,
     log_file=None,
-    save_version=None
+    save_version=None,
+    pi3_model=None
 ):
     """Run evaluation for a single task."""
     # Get task
@@ -433,6 +441,7 @@ def run_task(
             noisy_action_projector,
             initial_state,
             log_file,
+            pi3_model
         )
 
         # Update counters
@@ -483,6 +492,10 @@ def eval_libero(cfg: GenerateConfig) -> float:
 
     # Initialize model and components
     model, action_head, proprio_projector, noisy_action_projector, processor = initialize_model(cfg)
+    if cfg.use_3d:
+        pi3_model = load_pc_model(cfg.pi3_path)
+    else:
+        pi3_model = None
 
     # for name, param in model.named_parameters():
     #     if 'action_queries' in name: 
@@ -500,6 +513,7 @@ def eval_libero(cfg: GenerateConfig) -> float:
     num_tasks = task_suite.n_tasks
 
     log_message(f"Task suite: {cfg.task_suite_name}", log_file)
+    log_message(f"Using pretrained checkpoint: {cfg.pretrained_checkpoint}", log_file)
 
     # Start evaluation
     total_episodes, total_successes = 0, 0
@@ -517,7 +531,8 @@ def eval_libero(cfg: GenerateConfig) -> float:
             total_episodes,
             total_successes,
             log_file,
-            cfg.save_version
+            cfg.save_version,
+            pi3_model
         )
 
     # Calculate final success rate

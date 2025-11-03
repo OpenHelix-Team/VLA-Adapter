@@ -32,7 +32,7 @@ from prismatic.vla.constants import (
     ACTION_PROPRIO_NORMALIZATION_TYPE,
 )
 from prismatic.vla.datasets.rlds.utils.data_utils import NormalizationType
-
+from prismatic.models.pi3_loader import load_pc_model
 # Initialize important constants
 DATE = time.strftime("%Y_%m_%d")
 DATE_TIME = time.strftime("%Y_%m_%d-%H_%M_%S")
@@ -507,6 +507,9 @@ def get_action_head(cfg: Any, llm_dim: int) -> Union[L1RegressionActionHead]:
             hidden_dim=llm_dim, 
             action_dim=ACTION_DIM,
             use_pro_version=cfg.use_pro_version,
+            use_3d=cfg.use_3d,
+            dim_3d=cfg.dim_3d,
+            inject_layers=cfg.inject_layers,
         )
 
     else:
@@ -745,6 +748,8 @@ def get_vla_action(
     noisy_action_projector: Optional[torch.nn.Module] = None,
     use_film: bool = False,
     use_minivlm: bool = False,
+    use_3d_model: bool = False,
+    pi3_model: Optional[torch.nn.Module] = None
 ) -> List[np.ndarray]:
     """
     Generate action predictions with the VLA policy.
@@ -764,6 +769,11 @@ def get_vla_action(
         List[np.ndarray]: Predicted actions
     """
     with torch.inference_mode():
+        if use_3d_model:
+            assert pi3_model is not None
+            pi3_model = pi3_model.to(DEVICE).to(torch.bfloat16)
+
+            
 
         # Collect all input images
         all_images = [obs["full_image"]]
@@ -795,6 +805,24 @@ def get_vla_action(
             all_wrist_pixel_values = [wrist_inputs["pixel_values"] for wrist_inputs in all_wrist_inputs]
             inputs["pixel_values"] = torch.cat([primary_pixel_values] + all_wrist_pixel_values, dim=1)
 
+        if use_3d_model:
+            img_1, img_2 = inputs["pixel_values"][:, 0:3, :, :].to(DEVICE).to(torch.bfloat16), inputs["pixel_values"][:, 6:9, :, :].to(DEVICE).to(torch.bfloat16)
+            pi3_num_reg_token = 5
+            
+            img_tensor = torch.stack([img_1, img_2], dim=1) # [B, 2, 3, H, W] where 2 indicates 2 views
+            B, N, _, H, W = img_tensor.shape
+            img_tensor = img_tensor.reshape((B*N, _, H, W))
+            hidden = pi3_model.encoder(img_tensor, is_training=True)
+            if isinstance(hidden, dict):
+                hidden = hidden["x_norm_patchtokens"]
+            hidden, pos = pi3_model.decode(hidden, N, H, W)
+            hidden = hidden[:, pi3_num_reg_token:, :]
+            L_3d, dim_3d = hidden.shape[-2:]
+            hidden = hidden.reshape(B, -1, L_3d, dim_3d)
+            hidden = hidden.reshape(B, -1, dim_3d)
+        else:
+            hidden = None
+
         # Process proprioception data if used
         proprio = None
         if cfg.use_proprio:
@@ -819,6 +847,7 @@ def get_vla_action(
                 noisy_action_projector=noisy_action_projector,
                 action_head=action_head,
                 use_film=use_film,
+                hidden_3d=hidden
             )
 
     # Extract subset of actions for open loop steps

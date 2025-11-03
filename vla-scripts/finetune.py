@@ -3,7 +3,7 @@ finetune.py
 
 Fine-tunes Qwen2.5-0.5B via LoRA.
 """
-
+from typing import Dict, List, Optional, Tuple, Union
 import os
 import time
 from collections import deque
@@ -127,6 +127,9 @@ class FinetuneConfig:
     # revision version
     use_pro_version: bool = True                             # the version number
     phase: str = "Training"
+    use_3d: bool = False
+    dim_3d: int = 2048  
+    inject_layers: Union[int, List[int], str] = 0
     # fmt: on
 
 
@@ -190,6 +193,7 @@ def get_run_id(cfg) -> str:
             run_id += "--image_aug"
         if cfg.run_id_note is not None:
             run_id += f"--{cfg.run_id_note}"
+        run_id += f"--use_3d_{cfg.use_3d}_dim_{cfg.dim_3d}_inject_{cfg.inject_layers}"        
     return run_id
 
 
@@ -333,7 +337,8 @@ def run_forward_pass(
     # Get ground-truth action labels
     ground_truth_actions = batch["actions"].to(device_id).to(torch.bfloat16)
     noise, noisy_actions, diffusion_timestep_embeddings = None, None, None
-
+    pi3_model = kwargs.get("pi3_model", None)
+    img_1, img_2 = batch["pixel_values"][:, 0:3, :, :].to(device_id).to(torch.bfloat16), batch["pixel_values"][:, 6:9, :, :].to(device_id).to(torch.bfloat16)
     # VLA forward pass
     with torch.autocast("cuda", dtype=torch.bfloat16):
         output: CausalLMOutputWithPast = vla(
@@ -349,6 +354,20 @@ def run_forward_pass(
             diffusion_timestep_embeddings=None,
             use_film=use_film,
             )
+        if pi3_model is not None:
+            pi3_num_reg_token = 5
+            
+            img_tensor = torch.stack([img_1, img_2], dim=1) # [B, 2, 3, H, W] where 2 indicates 2 views
+            B, N, _, H, W = img_tensor.shape
+            img_tensor = img_tensor.reshape((B*N, _, H, W))
+            hidden = pi3_model.encoder(img_tensor, is_training=True)
+            if isinstance(hidden, dict):
+                hidden = hidden["x_norm_patchtokens"]
+            hidden, pos = pi3_model.decode(hidden, N, H, W)
+            hidden = hidden[:, pi3_num_reg_token:, :]
+            L_3d, dim_3d = hidden.shape[-2:]
+            hidden = hidden.reshape(B, -1, L_3d, dim_3d)
+            hidden = hidden.reshape(B, -1, dim_3d)
 
     # Get action masks needed for logging
     #* batch["labels"] 是 L 个（L_a+L_lang），第一个是 BOS token，这样 :, 1: 是索引第 2-L 个。
@@ -359,6 +378,8 @@ def run_forward_pass(
     next_actions_mask = get_next_actions_mask(ground_truth_token_ids)
 
     # Compute metrics for discrete action representation (next-token prediction)
+    
+    
     if not (use_l1_regression):
         loss = output.loss
         predicted_token_ids = output.logits[:, num_patches:-1].argmax(dim=2)
@@ -424,6 +445,7 @@ def run_forward_pass(
             proprio=batch["proprio"] if use_proprio else None,
             proprio_projector=proprio_projector if use_proprio else None,
             phase=cfg.phase,
+            hidden_3d=hidden.to(torch.bfloat16)
             )
 
         loss = torch.nn.L1Loss()(predicted_actions, ground_truth_actions)
@@ -764,7 +786,7 @@ def finetune(cfg: FinetuneConfig) -> None:
 
     # Initialize wandb logging
     if distributed_state.is_main_process:
-        wandb.init(project=cfg.wandb_project, name=f"ft+{run_id}", mode="offline")
+        wandb.init(project=cfg.wandb_project, name=f"ft+{run_id}", mode="online") #TODO: set online when necessary
 
     # Print detected constants
     print(
@@ -927,10 +949,16 @@ def finetune(cfg: FinetuneConfig) -> None:
             "hidden_dim": vla.module.llm_dim, 
             "action_dim": ACTION_DIM,
             "use_pro_version": cfg.use_pro_version,
+            "use_3d": cfg.use_3d,
+            "dim_3d": cfg.dim_3d,
+            "inject_layers": cfg.inject_layers
             },
         to_bf16=True,
         )
-    pi3_model = load_pc_model(cfg.pi3_path).to(device_id)
+    pi3_model = load_pc_model(cfg.pi3_path).to(device_id).to(torch.bfloat16)
+    pi3_model.eval()
+    for name, param in pi3_model.named_parameters():
+        param.requires_grad = False
 
     # Get number of vision patches
     NUM_PATCHES = vla.module.vision_backbone.get_num_patches() * vla.module.vision_backbone.get_num_images_in_input()
@@ -1070,6 +1098,7 @@ def finetune(cfg: FinetuneConfig) -> None:
                 compute_diffusion_l1=compute_diffusion_l1,
                 use_pro_version=cfg.use_pro_version,
                 cfg=cfg,
+                pi3_model=pi3_model
             )
 
             # Normalize loss to account for gradient accumulation

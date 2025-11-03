@@ -879,6 +879,7 @@ class OpenVLAForActionPrediction(PrismaticForConditionalGeneration):
         action_head=None,
         proprio=None,
         proprio_projector=None,
+        hidden_3d=None
     ):
         """Run L1 regression-based continuous action prediction or discrete action tokens prediction."""
 
@@ -929,7 +930,8 @@ class OpenVLAForActionPrediction(PrismaticForConditionalGeneration):
             # L1 regression prediction
             normalized_actions = action_head.predict_action(multi_layer_hidden_states,
                                                 proprio=proprio,
-                                                proprio_projector=proprio_projector)
+                                                proprio_projector=proprio_projector,
+                                                hidden_3d=hidden_3d)
             normalized_actions = normalized_actions.reshape(NUM_ACTIONS_CHUNK, ACTION_DIM)
             normalized_actions = normalized_actions.float().cpu().detach().numpy()
         else:
@@ -980,6 +982,7 @@ class OpenVLAForActionPrediction(PrismaticForConditionalGeneration):
 
         pixel_values = kwargs["pixel_values"] # [1, 12, 224, 224]
         attention_mask = kwargs["attention_mask"] # 
+        hidden_3d = kwargs.get("hidden_3d", None)
 
         # Create fake labels tensor (needed for action mask)
         labels = input_ids.clone()
@@ -1026,6 +1029,7 @@ class OpenVLAForActionPrediction(PrismaticForConditionalGeneration):
             action_head=action_head,
             proprio=proprio, # [8]
             proprio_projector=proprio_projector,
+            hidden_3d=hidden_3d,
             )
            
         # Unnormalize predicted actions
