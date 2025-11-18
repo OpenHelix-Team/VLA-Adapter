@@ -37,6 +37,7 @@ class StateEncoding(IntEnum):
     POS_QUAT = 2            # EEF XYZ (3) + Quaternion (4) + Gripper Open/Close (1)
     JOINT = 3               # Joint Angles (7, <PAD> if fewer) + Gripper Open/Close (1)
     JOINT_BIMANUAL = 4      # Joint Angles (2 x [ Joint Angles (6) + Gripper Open/Close (1) ])
+    JOINT_SINGLE = 5  # Joint Angles (1 x [ Joint Angles (6) + Gripper Open/Close (1) ])
     # fmt: on
 
 
@@ -47,6 +48,7 @@ class ActionEncoding(IntEnum):
     JOINT_POS = 2           # Joint Delta Position (7) + Gripper Open/Close (1)
     JOINT_POS_BIMANUAL = 3  # Joint Delta Position (2 x [ Joint Delta Position (6) + Gripper Open/Close (1) ])
     EEF_R6 = 4              # EEF Delta XYZ (3) + R6 (6) + Gripper Open/Close (1)
+    JOINT_POS_SINGLE = 5  # Joint Delta Position (1 x [ Joint Delta Position (6) + Gripper Open/Close (1) ])
     # fmt: on
 
 
@@ -719,5 +721,12 @@ OXE_DATASET_CONFIGS = {
         "state_obs_keys": ["state"],
         "state_encoding": StateEncoding.JOINT_BIMANUAL,
         "action_encoding": ActionEncoding.JOINT_POS_BIMANUAL,
+    },
+    "aloha_put_x_into_the_box_80_demos": {
+        "image_obs_keys": {"primary": "image", "secondary": None, "left_wrist": None, "right_wrist": "right_wrist_image"},
+        "depth_obs_keys": {"primary": None, "secondary": None, "wrist": None},
+        "state_obs_keys": ["state"],
+        "state_encoding": StateEncoding.JOINT_SINGLE,
+        "action_encoding": ActionEncoding.JOINT_POS_SINGLE,
     },
 }
