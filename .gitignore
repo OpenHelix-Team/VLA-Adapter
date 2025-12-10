@@ -151,3 +151,9 @@ data/
 # Rollout videos and wandb logs
 rollouts/
 wandb/
+pretrained_models/
+# Rollout videos and wandb logs
+outputs/
+experiments/logs/
+evaluation_results/
+vla_adapter.egg-info/

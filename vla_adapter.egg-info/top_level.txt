@@ -1,4 +1,7 @@
+eval_logs
 experiments
+figure
+pretrained_models
 prismatic
 scripts
 vla-scripts
