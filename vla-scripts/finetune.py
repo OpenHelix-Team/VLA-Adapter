@@ -88,7 +88,7 @@ class FinetuneConfig:
 
     # Training configuration
     batch_size: int = 8                              # Batch size per device (total batch size = batch_size * num GPUs)
-    learning_rate: float = 5e-4                      # Learning rate
+    learning_rate: float = 2e-4                      # Learning rate
     lr_warmup_steps: int = 0.1                       # Number of steps to warm up learning rate (from 10% to 100%)
     num_steps_before_decay: int = 100000             # Number of steps before LR decays by 10x
     grad_accumulation_steps: int = 1                 # Number of gradient accumulation steps
@@ -991,6 +991,7 @@ def finetune(cfg: FinetuneConfig) -> None:
         sampler=None,
         collate_fn=collator,
         num_workers=0,  # Important: Set to 0 if using RLDS, which uses its own parallelism
+        pin_memory=True,
     )
     print('Len of dataloader: ', len(dataloader))
     if cfg.use_val_set:
@@ -1001,6 +1002,7 @@ def finetune(cfg: FinetuneConfig) -> None:
             sampler=None,
             collate_fn=collator,
             num_workers=0,  # Important: Set to 0 if using RLDS, which uses its own parallelism
+            pin_memory=True,
         )
 
     # Deque to store recent train metrics (used for computing smoothened metrics for gradient accumulation)

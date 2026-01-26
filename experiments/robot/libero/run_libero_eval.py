@@ -17,7 +17,13 @@ from typing import Optional, Union
 import draccus
 import numpy as np
 import tqdm
-from libero.libero import benchmark
+try:
+    from libero.libero import benchmark
+except ImportError:
+    print("ERROR: Failed to import 'libero'. Please ensure you have installed the LIBERO benchmark dependencies.")
+    print("See README.md for installation instructions: https://github.com/Lifelong-Robot-Learning/LIBERO")
+    print("Run: pip install -e LIBERO and pip install -r experiments/robot/libero/libero_requirements.txt")
+    sys.exit(1)
 
 import wandb
 

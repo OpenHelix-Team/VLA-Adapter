@@ -205,6 +205,15 @@ The downloaded dataset can be placed in the `/data` folder. The overall director
 <br/>
 <br/>
 
+### :floppy_disk: Custom Data Preparation
+
+If you want to fine-tune on your own dataset (non-RLDS), you can modify `vla-scripts/finetune.py`. 
+We provided a commented block in `finetune.py` (around line 932) that demonstrates how to swap the RLDS dataset for a standard PyTorch Dataset.
+You will need to implement a dataset class that returns the appropriate dictionary format (input_ids, pixel_values, labels, etc.).
+
+<br/>
+<br/>
+
 ## ⚓ VLM backbone <a name="vlm"></a>
 We use the `Prismatic-VLMs` architecture. Since the file is large, please download it from [here](https://huggingface.co/Stanford-ILIAD/prism-qwen25-extra-dinosiglip-224px-0_5b). Then put it in the `/pretrained_models` folder. The file structure is:
 
