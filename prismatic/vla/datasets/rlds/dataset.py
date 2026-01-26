@@ -563,6 +563,7 @@ def make_interleaved_dataset(
     # Validation =>> fix a single shuffle buffer of data and cache it in RAM; prevents gradual memory increase!
     if not train:
         dataset = dataset.take(shuffle_buffer_size).cache()
+        dataset_len = min(dataset_len, shuffle_buffer_size)
 
     # Shuffle the Dataset
     #   =>> IMPORTANT :: Shuffle AFTER .cache(), or else memory will still leak!
