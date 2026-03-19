@@ -848,6 +848,7 @@ class OpenVLAForActionPrediction(PrismaticForConditionalGeneration):
         multi_layer_hidden_states = []
         
         for item in language_model_output.hidden_states[0:]:
+            item = [:, 1:-1, :]  # remove bos and eos token first
             # last_hidden_states = output.hidden_states[-1]  # (B, seq_len, D)
             # Get hidden states for text portion of prompt+response (after the vision patches)
             text_hidden_states = item
