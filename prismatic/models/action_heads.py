@@ -17,6 +17,21 @@ def learnable_random_perturbations(seq_len, dim, device, dtype):
     return random_perturbations
 
 
+def split_task_action_hidden_states(hidden_states, num_action_tokens=NUM_TOKENS):
+    """Split `[task tokens, action tokens]` using the fixed trailing action-token count."""
+    if hidden_states.ndim != 4:
+        raise ValueError(f"Expected hidden states with 4 dimensions, got shape {tuple(hidden_states.shape)}")
+    if num_action_tokens <= 0:
+        raise ValueError(f"num_action_tokens must be positive, got {num_action_tokens}")
+    if hidden_states.shape[2] <= num_action_tokens:
+        raise ValueError(
+            f"Token count {hidden_states.shape[2]} must exceed the {num_action_tokens} trailing action tokens"
+        )
+
+    task_end = hidden_states.shape[2] - num_action_tokens
+    return hidden_states[:, :, :task_end, :], hidden_states[:, :, task_end:, :]
+
+
 
 class L1RegressionActionHead(nn.Module):
     """Simple MLP-based action head that generates continuous actions via L1 regression."""
@@ -29,6 +44,7 @@ class L1RegressionActionHead(nn.Module):
         use_pro_version=False,
     ):
         super().__init__()
+        # Retain this attribute for constructor compatibility; the runtime boundary is inferred below.
         self.num_task_tokens = num_task_tokens
         self.action_dim = action_dim
         self.hidden_dim = hidden_dim
@@ -54,8 +70,7 @@ class L1RegressionActionHead(nn.Module):
         proprio_features = proprio_projector(proprio)  # (bsz, llm_dim)
         proprio_features = proprio_features.unsqueeze(dim=1)  # (bsz, 1, llm_dim)
 
-        task_hidden_states = actions_hidden_states[:, :, :self.num_task_tokens, :]
-        actions_hidden_states = actions_hidden_states[:, :, self.num_task_tokens:, :]
+        task_hidden_states, actions_hidden_states = split_task_action_hidden_states(actions_hidden_states)
 
         cond_actions_hidden_states = torch.zeros(
             (batch_size, self.action_dim * NUM_ACTIONS_CHUNK, self.hidden_dim),
