@@ -42,7 +42,28 @@ class SplitModalitySampler(Sampler):
 
         # For our purposes, `drop_last` is always False!
         assert not self.drop_last, "SplitModalitySampler must set `drop_last = False`!"
-        self.total_size = math.ceil(len(self.dataset) / self.global_batch_size) * self.global_batch_size
+        if len(self.dataset) == 0:
+            raise ValueError("SplitModalitySampler requires a non-empty dataset")
+        if len(self.modality_lengths) != len(self.dataset):
+            raise ValueError("modality_lengths must contain one entry per dataset item")
+        if self.global_batch_size <= 0:
+            raise ValueError("global_batch_size must be positive")
+        if self.num_replicas <= 0:
+            raise ValueError("num_replicas must be positive")
+        if self.global_batch_size % self.num_replicas != 0:
+            raise ValueError("global_batch_size must be divisible by num_replicas")
+
+        # Each modality is batched independently so that every global batch is
+        # homogeneous.  Consequently, two modality tails may require more
+        # padding than ceil(len(dataset) / global_batch_size) would provide.
+        modality_counts = [
+            sum(1 for is_multimodal, _ in self.modality_lengths if is_multimodal),
+            sum(1 for is_multimodal, _ in self.modality_lengths if not is_multimodal),
+        ]
+        num_batches = sum(
+            math.ceil(count / self.global_batch_size) for count in modality_counts if count > 0
+        )
+        self.total_size = num_batches * self.global_batch_size
         self.num_samples = self.total_size // self.num_replicas
 
     @staticmethod
@@ -73,42 +94,46 @@ class SplitModalitySampler(Sampler):
         of the same modality with each sub-sequence of `per_replica_batch_size` (the batch size each unique device sees
         during distributed training) is roughly grouped by sequence length (for training efficiency).
         """
-        multimodal_indices, multimodal_lengths = zip(
-            *[(idx, length) for idx, (is_multimodal, length) in enumerate(self.modality_lengths) if is_multimodal]
-        )
-
-        # Handle Special Case --> no "unimodal" inputs
+        multimodal_split = [
+            (idx, length) for idx, (is_multimodal, length) in enumerate(self.modality_lengths) if is_multimodal
+        ]
         unimodal_split = [
             (idx, length) for idx, (is_multimodal, length) in enumerate(self.modality_lengths) if not is_multimodal
         ]
-        if len(unimodal_split) == 0:
-            unimodal_indices, unimodal_lengths = [], []
+        if multimodal_split:
+            multimodal_indices, multimodal_lengths = map(list, zip(*multimodal_split))
         else:
-            unimodal_indices, unimodal_lengths = zip(*unimodal_split)
-
-        # Create a permutation of indices for each of the multimodal and unimodal data
-        mm_shuffled_idxs = torch.randperm(len(multimodal_indices), generator=generator)
-        uni_shuffled_idxs = torch.randperm(len(unimodal_indices), generator=generator)
+            multimodal_indices, multimodal_lengths = [], []
+        if unimodal_split:
+            unimodal_indices, unimodal_lengths = map(list, zip(*unimodal_split))
+        else:
+            unimodal_indices, unimodal_lengths = [], []
 
         # We're going to be running sorting/grouping relative to `self.global_batch_size` and `self.num_replicas`
         g_bsz = self.global_batch_size
 
-        # Break each of the permutations into batches of length `global_batch_size`
-        mm_batch_idxs = [mm_shuffled_idxs[i : i + g_bsz].tolist() for i in range(0, len(mm_shuffled_idxs), g_bsz)]
-        uni_batch_idxs = [uni_shuffled_idxs[i : i + g_bsz].tolist() for i in range(0, len(uni_shuffled_idxs), g_bsz)]
+        def make_batches(indices: List[int], lengths: List[int]) -> List[List[int]]:
+            """Shuffle, pad, and distribute one modality without empty-tail failures."""
+            if not indices:
+                return []
 
-        # If "last" batch is not of length `g_bsz` --> PAD by stealing indices from the first batch!
-        if len(mm_batch_idxs[-1]) < g_bsz:
-            n_missing = g_bsz - len(mm_batch_idxs[-1])
-            mm_batch_idxs[-1].extend(mm_batch_idxs[0][:n_missing])
+            shuffled_idxs = torch.randperm(len(indices), generator=generator).tolist()
+            batch_idxs = [shuffled_idxs[i : i + g_bsz] for i in range(0, len(shuffled_idxs), g_bsz)]
 
-        if len(uni_batch_idxs) > 0 and len(uni_batch_idxs[-1]) < g_bsz:
-            n_missing = g_bsz - len(uni_batch_idxs[-1])
-            uni_batch_idxs[-1].extend(uni_batch_idxs[0][:n_missing])
+            # Pad a short tail cyclically.  A modality can contain fewer than
+            # one global batch, so slicing the first batch once is insufficient.
+            if len(batch_idxs[-1]) < g_bsz:
+                n_missing = g_bsz - len(batch_idxs[-1])
+                first_batch = batch_idxs[0]
+                batch_idxs[-1].extend(first_batch[i % len(first_batch)] for i in range(n_missing))
 
-        # Now we're going to sort each batch by length --> this will aid in grouping by length by rank (efficiency!)
-        mm_sorted_batch_idxs = [sorted(b, key=lambda i: multimodal_lengths[i], reverse=True) for b in mm_batch_idxs]
-        uni_sorted_batch_idxs = [sorted(b, key=lambda i: unimodal_lengths[i], reverse=True) for b in uni_batch_idxs]
+            sorted_batch_idxs = [sorted(batch, key=lambda i: lengths[i], reverse=True) for batch in batch_idxs]
+            length_bucketed_idxs = [
+                self.reindex_batch(batch, lengths, self.num_replicas) for batch in sorted_batch_idxs
+            ]
+            output_idxs = [idx for batch in length_bucketed_idxs for bucket in batch for idx in bucket]
+            reindexed = [indices[idx] for idx in output_idxs]
+            return [reindexed[i : i + g_bsz] for i in range(0, len(reindexed), g_bsz)]
 
         # IMPORTANT :: At this point, for each modality, we have a list of "batches" (made up of indices) where indices
         # are sorted by example sequence length *within* each batch. To make this more concrete, consider the following:
@@ -147,22 +172,8 @@ class SplitModalitySampler(Sampler):
         #   => `rank_1_indices`: [ [5 (18), 0 (20)] =>> [11 (17), 7 (19)] =>> [2 (21),  1 (90)] ]
         #
         # Much better! As `g_bsz` and `dataset` grow, we're more often than not getting *decent* groupings!
-        mm_length_bucketed_idxs = [
-            self.reindex_batch(batch, multimodal_lengths, self.num_replicas) for batch in mm_sorted_batch_idxs
-        ]
-        uni_length_bucketed_idxs = [
-            self.reindex_batch(batch, unimodal_lengths, self.num_replicas) for batch in uni_sorted_batch_idxs
-        ]
-
-        # Note :: Because of the initial `randperm` --> we're indexing both sets from 0 (we're clobbering the range)
-        #   => Flatten indices --> index into original `{modality}_indices` then re-batch!
-        mm_output_idxs = [idx for batch in mm_length_bucketed_idxs for bucket in batch for idx in bucket]
-        mm_reindexed = [multimodal_indices[idx] for idx in mm_output_idxs]
-        mm_batches = [mm_reindexed[i : i + g_bsz] for i in range(0, len(mm_reindexed), g_bsz)]
-
-        uni_output_idxs = [idx for batch in uni_length_bucketed_idxs for bucket in batch for idx in bucket]
-        uni_reindexed = [unimodal_indices[idx] for idx in uni_output_idxs]
-        uni_batches = [uni_reindexed[i : i + g_bsz] for i in range(0, len(uni_reindexed), g_bsz)]
+        mm_batches = make_batches(multimodal_indices, multimodal_lengths)
+        uni_batches = make_batches(unimodal_indices, unimodal_lengths)
 
         # Finally, randomly permute the multimodal & unimodal batches, merging into a single stream of indices
         merged_batches = mm_batches + uni_batches
