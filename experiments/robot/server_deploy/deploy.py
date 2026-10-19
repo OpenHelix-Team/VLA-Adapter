@@ -24,11 +24,13 @@ import msgpack_numpy
 # Append project root to sys.path
 sys.path.append("../..")
 
+from experiments.robot import openvla_utils
 from experiments.robot.openvla_utils import (
     get_action_head,
     get_processor,
     get_proprio_projector,
 )
+from prismatic.util.device import resolve_device
 from experiments.robot.robot_utils import (
     get_action,
     get_image_resize_size,
@@ -53,7 +55,7 @@ class DeployConfig:
     # Server Configuration
     host: str = "0.0.0.0"                                               # Host IP Address
     port: int = 8000                                                    # Host Port
-    device: str = "cuda:0"                                              # Device to run model on
+    device: str = ""                                                    # Device to run model on ("" = detect: xpu, cuda, cpu)
 
     #################################################################################################################
     # Model-specific parameters
@@ -101,6 +103,9 @@ class DeployConfig:
 
 def initialize_model(cfg: DeployConfig):
     """Initialize model and associated components."""
+    # The loaders in openvla_utils read this module-level device at call time
+    openvla_utils.DEVICE = resolve_device(cfg.device)
+
     # Load model
     model = get_model(cfg)
     model.set_version(cfg.save_version)

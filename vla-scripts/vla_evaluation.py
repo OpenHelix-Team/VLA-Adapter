@@ -8,6 +8,7 @@ import time
 from typing import Any, Dict, List, Optional, Tuple, Union
 import tensorflow as tf
 from calvin_agent.models.calvin_base_model import CalvinBaseModel
+from prismatic.util.device import default_device
 from prismatic.vla.constants import (
     ACTION_DIM,
     ACTION_PROPRIO_NORMALIZATION_TYPE,
@@ -190,7 +191,7 @@ class DualSystemCalvinEvaluation(CalvinBaseModel):
     def __init__(self, model, proprio_projector, noisy_action_projector, action_head, processor, use_x0_prediction=False):
         super().__init__()
 
-        self.device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+        self.device = default_device()
         self.processor = processor
         self.OFT = model
         self.proprio_projector = proprio_projector
