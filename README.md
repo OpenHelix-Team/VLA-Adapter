@@ -114,7 +114,7 @@ pip install "flash-attn==2.5.5" --no-build-isolation
 ### How to run the same on Intel's XPU
 
 Inference runs on Intel GPUs through PyTorch XPU. Install the XPU build of PyTorch instead of the CUDA one in the
-"Install PyTorch" step, and skip the Flash Attention 2 step (it is only used for training):
+"Install PyTorch" step, and skip the Flash Attention 2 step (inference uses PyTorch SDPA):
 
 ```bash
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/xpu
@@ -123,7 +123,7 @@ pip install torch torchvision torchaudio --index-url https://download.pytorch.or
 The device is detected automatically (XPU, then CUDA, then CPU), so the eval command is the same as below, with
 `ZE_AFFINITY_MASK=0` in place of `CUDA_VISIBLE_DEVICES=0` to pick the card. For the server, pass `--device xpu:0`
 to `experiments/robot/server_deploy/deploy.py` to choose it explicitly. Attention uses PyTorch SDPA on XPU.
-Training, the CALVIN scripts and the LIBERO simulator itself stay CUDA-only and are not covered.
+The LIBERO simulator itself still needs a CUDA machine (it relies on EGL rendering).
 
 <br/>
 <br/>
